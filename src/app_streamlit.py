@@ -66,3 +66,59 @@ def run_app():
                     pred, _ = predict_tiled(img_path, model_path, out_path, proba_out=proba_out or None)
                 st.success("Prediction completed")
                 st.image(pred, caption="Prediction map", use_container_width=True)
+
+    elif mode == "Change":
+        st.subheader("Spectral Change Detection")
+        before = st.file_uploader("Before image", type=["tif", "tiff"], key="chg_before")
+        after = st.file_uploader("After image", type=["tif", "tiff"], key="chg_after")
+        out_path = st.text_input("Change output", "outputs/change_map.tif")
+        if st.button("Run change detection"):
+            if before is None or after is None:
+                st.error("Upload both images.")
+            else:
+                tmp = Path(".tmp_uploads")
+                tmp.mkdir(parents=True, exist_ok=True)
+                b = tmp / "before.tif"
+                a = tmp / "after.tif"
+                b.write_bytes(before.getbuffer())
+                a.write_bytes(after.getbuffer())
+                with st.spinner("Detecting changes..."):
+                    change, _ = spectral_change_detection(b, a, out_path, cfg)
+                st.success("Done")
+                st.image(change, caption="Change map", use_container_width=True)
+
+    elif mode == "Semantic Change":
+        st.subheader("Semantic Change Detection")
+        before = st.file_uploader("Before image", type=["tif", "tiff"], key="sem_before")
+        after = st.file_uploader("After image", type=["tif", "tiff"], key="sem_after")
+        out_path = st.text_input("Transition output", "outputs/semantic_change.tif")
+        if st.button("Run semantic change"):
+            if before is None or after is None:
+                st.error("Upload both images.")
+            else:
+                tmp = Path(".tmp_uploads")
+                tmp.mkdir(parents=True, exist_ok=True)
+                b = tmp / "before_sem.tif"
+                a = tmp / "after_sem.tif"
+                b.write_bytes(before.getbuffer())
+                a.write_bytes(after.getbuffer())
+                with st.spinner("Predicting and comparing..."):
+                    result = semantic_change_detection(b, a, model_path, out_path)
+                st.success("Done")
+                st.json(result)
+
+    elif mode == "Summarize":
+        st.subheader("Area Summary")
+        pred_file = st.file_uploader("Prediction map", type=["tif", "tiff"], key="sum_pred")
+        out_csv = st.text_input("CSV output", "outputs/area_stats.csv")
+        if st.button("Summarize"):
+            if pred_file is None:
+                st.error("Upload a prediction map.")
+            else:
+                tmp = Path(".tmp_uploads")
+                tmp.mkdir(parents=True, exist_ok=True)
+                p = tmp / "prediction.tif"
+                p.write_bytes(pred_file.getbuffer())
+                rows = summarize_prediction_map(p, out_csv, cfg)
+                st.success("Summary saved")
+                st.dataframe(rows, use_container_width=True)
