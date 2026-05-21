@@ -147,3 +147,46 @@ def generate_multiband_image(labels: np.ndarray, spec: SyntheticSceneSpec) -> np
             bands[b][mask] = band[mask]
 
 
+    # Fill background areas with smoother mixed values.
+    bg = labels == 0
+    for b in range(spec.bands):
+        bands[b][bg] = 0.5 * bands[b][bg] + 0.5 * (0.08 + 0.03 * b + seasonal[bg])
+
+    # Normalize and keep in a plausible reflectance range.
+    bands = np.clip(bands, 0.0, 1.0)
+    return bands.astype(np.float32)
+
+
+def generate_scene(spec: SyntheticSceneSpec):
+    labels = generate_label_map(spec)
+    image = generate_multiband_image(labels, spec)
+    transform = from_origin(0, spec.height * spec.pixel_size, spec.pixel_size, spec.pixel_size)
+    meta = {
+        "driver": "GTiff",
+        "height": spec.height,
+        "width": spec.width,
+        "count": spec.bands,
+        "dtype": "float32",
+        "crs": "EPSG:32633",
+        "transform": transform,
+    }
+    label_meta = meta.copy()
+    label_meta.update(count=1, dtype="uint8")
+    return image, labels, meta, label_meta
+
+
+def generate_before_after_scene(spec: SyntheticSceneSpec, change_strength: float = 0.15):
+    base_labels = generate_label_map(spec)
+    before = generate_multiband_image(base_labels, spec)
+
+    # Create an "after" map with plausible change: urban expansion, vegetation loss, water shift.
+    after_labels = base_labels.copy()
+    rng = np.random.default_rng(spec.seed + 999)
+    h, w = after_labels.shape
+
+    # Convert some vegetation to built-up
+    veg = np.argwhere(after_labels == 1)
+    if len(veg) > 0:
+        idx = rng.choice(len(veg), size=max(1, int(len(veg) * change_strength * 0.35)), replace=False)
+        after_labels[tuple(veg[idx].T)] = 3
+
