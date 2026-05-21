@@ -81,5 +81,69 @@ def generate_label_map(spec: SyntheticSceneSpec) -> np.ndarray:
     lake2 = _ellipse_mask(h, w, w * 0.78, h * 0.72, w * 0.08, h * 0.05, angle=-0.5)
     labels[lake1 | lake2] = 2
 
- 
+    # Vegetation clusters
+    for _ in range(8):
+        cx = rng.uniform(0.05, 0.95) * w
+        cy = rng.uniform(0.05, 0.95) * h
+        rx = rng.uniform(w * 0.05, w * 0.18)
+        ry = rng.uniform(h * 0.04, h * 0.16)
+        ang = rng.uniform(0, np.pi)
+        mask = _ellipse_mask(h, w, cx, cy, rx, ry, ang)
+        labels[(mask) & (labels == 0)] = 1
+
+    # Urban clusters
+    for _ in range(6):
+        cx = rng.uniform(0.15, 0.90) * w
+        cy = rng.uniform(0.10, 0.90) * h
+        rx = rng.uniform(w * 0.05, w * 0.12)
+        ry = rng.uniform(h * 0.04, h * 0.10)
+        ang = rng.uniform(0, np.pi)
+        mask = _ellipse_mask(h, w, cx, cy, rx, ry, ang)
+        labels[(mask) & (labels == 0)] = 3
+
+    # Bare soil patches
+    for _ in range(5):
+        cx = rng.uniform(0.10, 0.90) * w
+        cy = rng.uniform(0.10, 0.90) * h
+        rx = rng.uniform(w * 0.04, w * 0.14)
+        ry = rng.uniform(h * 0.04, h * 0.12)
+        ang = rng.uniform(0, np.pi)
+        mask = _ellipse_mask(h, w, cx, cy, rx, ry, ang)
+        labels[(mask) & (labels == 0)] = 4
+
+    # Add some natural background variation
+    bg_noise = _smooth_noise(rng, h, w, scale=24)
+    labels[(labels == 0) & (bg_noise > 0.78)] = 1
+    labels[(labels == 0) & (bg_noise < 0.08)] = 4
+
+    return labels
+
+
+def generate_multiband_image(labels: np.ndarray, spec: SyntheticSceneSpec) -> np.ndarray:
+    rng = np.random.default_rng(spec.seed + 101)
+    h, w = labels.shape
+    bands = np.zeros((spec.bands, h, w), dtype=np.float32)
+
+    gradient_x = np.linspace(0.0, 1.0, w, dtype=np.float32)[None, :]
+    gradient_y = np.linspace(0.0, 1.0, h, dtype=np.float32)[:, None]
+    seasonal = 0.03 * np.sin(2 * np.pi * gradient_x) + 0.02 * np.cos(2 * np.pi * gradient_y)
+
+    for cls in SPECTRAL_SIGNATURES:
+        base = SPECTRAL_SIGNATURES[cls][: spec.bands].copy()
+        mask = labels == cls
+        for b in range(spec.bands):
+            noise = rng.normal(0, 0.015 + 0.005 * b, size=(h, w)).astype(np.float32)
+            spatial = seasonal + 0.01 * b * gradient_x + 0.008 * b * gradient_y
+            band = base[b] + spatial + noise
+            # Class-specific adjustments to make classes separable but realistic.
+            if cls == 1:
+                band += 0.05 * np.clip(gradient_y, 0, 1)
+            elif cls == 2:
+                band -= 0.02 * np.clip(gradient_x, 0, 1)
+            elif cls == 3:
+                band += 0.04 * np.clip(gradient_x + gradient_y, 0, 2)
+            elif cls == 4:
+                band += 0.02 * np.sin(4 * np.pi * gradient_x)
+            bands[b][mask] = band[mask]
+
 
