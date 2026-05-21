@@ -190,3 +190,58 @@ def generate_before_after_scene(spec: SyntheticSceneSpec, change_strength: float
         idx = rng.choice(len(veg), size=max(1, int(len(veg) * change_strength * 0.35)), replace=False)
         after_labels[tuple(veg[idx].T)] = 3
 
+    # Convert some bare soil to vegetation
+    soil = np.argwhere(after_labels == 4)
+    if len(soil) > 0:
+        idx = rng.choice(len(soil), size=max(1, int(len(soil) * change_strength * 0.25)), replace=False)
+        after_labels[tuple(soil[idx].T)] = 1
+
+    # Shift some water borders to bare soil
+    water = np.argwhere(after_labels == 2)
+    if len(water) > 0:
+        idx = rng.choice(len(water), size=max(1, int(len(water) * change_strength * 0.18)), replace=False)
+        after_labels[tuple(water[idx].T)] = 4
+
+    after = generate_multiband_image(after_labels, SyntheticSceneSpec(
+        width=spec.width, height=spec.height, bands=spec.bands, pixel_size=spec.pixel_size, seed=spec.seed + 123
+    ))
+
+    return (before, base_labels), (after, after_labels)
+
+
+def save_scene(image: np.ndarray, labels: np.ndarray, image_path: str | Path, labels_path: str | Path, meta: dict, label_meta: dict):
+    from .io_raster import write_geotiff
+
+    write_geotiff(image_path, image, meta, dtype="float32", nodata=-9999.0)
+    write_geotiff(labels_path, labels.astype(np.uint8), label_meta, dtype="uint8", nodata=255)
+
+
+def create_demo_dataset(base_dir: str | Path = "data/demo", spec: SyntheticSceneSpec | None = None):
+    base_dir = Path(base_dir)
+    spec = spec or SyntheticSceneSpec()
+
+    train_dir = base_dir / "train"
+    infer_dir = base_dir / "infer"
+    change_dir = base_dir / "change"
+    train_dir.mkdir(parents=True, exist_ok=True)
+    infer_dir.mkdir(parents=True, exist_ok=True)
+    change_dir.mkdir(parents=True, exist_ok=True)
+
+    image, labels, meta, label_meta = generate_scene(spec)
+    save_scene(image, labels, train_dir / "image.tif", train_dir / "labels.tif", meta, label_meta)
+
+    # Inference image: similar scene but not identical
+    spec_infer = SyntheticSceneSpec(width=spec.width, height=spec.height, bands=spec.bands, pixel_size=spec.pixel_size, seed=spec.seed + 7)
+    infer_img, infer_lbl, infer_meta, infer_label_meta = generate_scene(spec_infer)
+    save_scene(infer_img, infer_lbl, infer_dir / "image.tif", infer_dir / "labels.tif", infer_meta, infer_label_meta)
+
+    (before_img, before_lbl), (after_img, after_lbl) = generate_before_after_scene(spec)
+    save_scene(before_img, before_lbl, change_dir / "before.tif", change_dir / "before_labels.tif", meta, label_meta)
+    save_scene(after_img, after_lbl, change_dir / "after.tif", change_dir / "after_labels.tif", meta, label_meta)
+
+    return {
+        "train": {"image": str(train_dir / "image.tif"), "labels": str(train_dir / "labels.tif")},
+        "infer": {"image": str(infer_dir / "image.tif"), "labels": str(infer_dir / "labels.tif")},
+        "change": {"before": str(change_dir / "before.tif"), "after": str(change_dir / "after.tif")},
+    }
+
